@@ -53,6 +53,62 @@ class MyCNN(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc1(x)
         return x
+    
+    def train(self, batch_size, dataloader):
+        losses = []
+        correct = 0
+        total = 0
+        for batch_idx, (images, labels) in enumerate(dataloader):
+            if batch_idx > batch_size:
+                break
+            images = images.to(device)#send to gpu
+            labels = labels.to(device)
+
+            pred = model(images)
+            loss = loss_fn(pred, labels)
+            pred_label = pred.argmax(dim=1)
+            
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+            losses.append(loss.item())
+            avg_loss = round(sum(losses)/len(losses), 3)
+            correct += (pred_label == labels).sum().item()
+            total += len(labels)
+
+            acc = correct/total
+        return avg_loss, acc
+
+
+
+    def evaluate(self, batch_size, test_dataloader):
+        losses = []
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_idx, (images, labels) in enumerate(test_dataloader):
+                if batch_idx > batch_size:
+                    break
+                images = images.to(device)#send to gpu
+                labels = labels.to(device)
+
+                pred = model(images)
+                loss = loss_fn(pred, labels)
+                pred_label = pred.argmax(dim=1)
+
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+                
+                losses.append(loss.item())
+                avg_loss = round(sum(losses)/len(losses), 3)
+                correct += (pred_label == labels).sum().item()
+                total += len(labels)
+
+                acc = correct/total
+        return avg_loss, acc
+    
 
 preprocess = transforms.Compose([
     transforms.Resize((32,32)),
@@ -72,6 +128,19 @@ dataloader = DataLoader(
     shuffle=True
 )
 
+cifar_test = datasets.CIFAR10(
+    root="./data",
+    train=False,
+    download=True,
+    transform=preprocess
+)
+
+test_dataloader = DataLoader(
+    cifar_test,
+    batch_size=32,
+    shuffle=False
+)
+
 model = MyCNN()
 device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
@@ -84,29 +153,9 @@ opt = optim.Adam(
 loss_fn = nn.CrossEntropyLoss()
 batch_size = 64
 
+print(next(model.parameters()).device)
 for epoch in range(20):
     print(f"Round{epoch+1}")
-    correct = 0
-    total = 0
-
-    for batch_idx, (images, labels) in enumerate(dataloader):
-        if batch_idx > batch_size:
-            break
-        images = images.to(device)#send to gpu
-        labels = labels.to(device)
-
-        pred = model(images)
-        loss = loss_fn(pred, labels)
-        pred_label = pred.argmax(dim=1)
-        
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-
-        correct += (pred_label == labels).sum().item()
-        total += len(labels)
-        
-        acc = correct/total
-        if batch_idx == batch_size:
-            print(next(model.parameters()).device)
-        print(f"Batch{batch_idx}, Loss: {loss.item():.4f}, Acc: {acc:.4f}")
+    
+    loss, acc = model.train(batch_size, dataloader)
+    print(f"Loss: {loss}, Acc: {acc}")
