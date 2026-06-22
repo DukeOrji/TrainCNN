@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
 
 from torch.utils.data import DataLoader, random_split, Subset
 from torchvision import datasets, transforms
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10, MNIST
 from sklearn.model_selection import train_test_split
 
 
@@ -14,7 +15,7 @@ class MyCNN(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv2d(
-            in_channels=3,
+            in_channels=1,
             out_channels=16,
             kernel_size=3,
             padding=1
@@ -32,9 +33,13 @@ class MyCNN(nn.Module):
         
         self.pool = nn.MaxPool2d(2)
     
-        self.fc1 = nn.Linear(
-            32 * 8 * 8,
-            10
+
+        self.fc = nn.Sequential(
+            nn.Linear(1568, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 10)
         )
 
     def forward(self, x):
@@ -51,20 +56,21 @@ class MyCNN(nn.Module):
         )
 
         x = x.view(x.size(0), -1)
-        x = self.fc1(x)
+        x = self.fc(x)
         return x
     
-    def train(self, batch_size, dataloader):
+    def fit(self, num_batch, dataloader):
         losses = []
         correct = 0
         total = 0
+        self.train()
         for batch_idx, (images, labels) in enumerate(dataloader):
-            if batch_idx > batch_size:
+            if batch_idx > num_batch:
                 break
             images = images.to(device)#send to gpu
             labels = labels.to(device)
 
-            pred = model(images)
+            pred = self(images)
             loss = loss_fn(pred, labels)
             pred_label = pred.argmax(dim=1)
             
@@ -82,24 +88,22 @@ class MyCNN(nn.Module):
 
 
 
-    def evaluate(self, batch_size, test_dataloader):
+    def evaluate(self, num_batch, test_dataloader):
         losses = []
         correct = 0
         total = 0
+        self.eval()
         with torch.no_grad():
             for batch_idx, (images, labels) in enumerate(test_dataloader):
-                if batch_idx > batch_size:
+                if batch_idx > num_batch:
                     break
                 images = images.to(device)#send to gpu
                 labels = labels.to(device)
 
-                pred = model(images)
+                pred = self(images)
                 loss = loss_fn(pred, labels)
                 pred_label = pred.argmax(dim=1)
 
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
                 
                 losses.append(loss.item())
                 avg_loss = round(sum(losses)/len(losses), 3)
@@ -111,11 +115,11 @@ class MyCNN(nn.Module):
     
 
 preprocess = transforms.Compose([
-    transforms.Resize((32,32)),
+    transforms.Resize((28,28)),
     transforms.ToTensor()
     ])
 
-cifar_train = datasets.CIFAR10(
+mnist_train = datasets.MNIST(
     root="./data",
     train=True,
     download=True,
@@ -123,12 +127,12 @@ cifar_train = datasets.CIFAR10(
 )
 
 dataloader = DataLoader(
-    cifar_train,
+    mnist_train,
     batch_size=32,
     shuffle=True
 )
 
-cifar_test = datasets.CIFAR10(
+mnist_test = datasets.MNIST(
     root="./data",
     train=False,
     download=True,
@@ -136,9 +140,9 @@ cifar_test = datasets.CIFAR10(
 )
 
 test_dataloader = DataLoader(
-    cifar_test,
+    mnist_test,
     batch_size=32,
-    shuffle=False
+    shuffle=True
 )
 
 model = MyCNN()
@@ -147,15 +151,40 @@ model = model.to(device)
 
 opt = optim.Adam(
     model.parameters(),
-    lr=1e-3
+    lr=1e-2
 )
-
 loss_fn = nn.CrossEntropyLoss()
-batch_size = 64
+num_batch = 64
+
+#load previous model parameters
+if os.path.exists("checkpoint.pth"):
+    checkpoint = torch.load("checkpoint.pth")
+
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
+    opt.load_state_dict(
+        checkpoint["optimizer_state_dict"]
+    )
+else:
+    print("No checkpoint found. Starting from scratch.")
+
+#0 - train
+#1 - test
+switch = 1
 
 print(next(model.parameters()).device)
-for epoch in range(20):
+for epoch in range(30):
     print(f"Round{epoch+1}")
     
-    loss, acc = model.train(batch_size, dataloader)
+    if switch == 0:
+        loss, acc = model.fit(num_batch, dataloader)
+    else:
+        loss, acc = model.evaluate(num_batch, test_dataloader)
     print(f"Loss: {loss}, Acc: {acc}")
+
+#save model parameters
+torch.save({
+    "model_state_dict": model.state_dict(),
+    "optimizer_state_dict": opt.state_dict()
+}, "checkpoint.pth")
