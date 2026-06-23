@@ -8,82 +8,54 @@ from torchvision import datasets, transforms
 from torchvision.datasets import CIFAR10, MNIST
 from sklearn.model_selection import train_test_split
 
-class ResidualBlock(nn.Module):
 
-    def __init__(self, channels):
+#going to be trianed on CIFAR10 - (3 x 32 x 32)
+class MyCNN(nn.Module):
+    def __init__(self):
         super().__init__()
 
         self.conv1 = nn.Conv2d(
-            channels,
-            channels,
+            in_channels=1,
+            out_channels=16,
             kernel_size=3,
             padding=1
         )
-        self.bn1 = nn.BatchNorm2d(channels)
+
+        self.pool = nn.MaxPool2d(2)
 
         self.conv2 = nn.Conv2d(
-            channels,
-            channels,
-            kernel_size=3,
+            16,
+            32,
+            3,
             padding=1
         )
-        self.bn2 = nn.BatchNorm2d(channels)
+
+        
+        self.fc = nn.Sequential(
+            nn.Linear(1568, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 10)
+        )
 
     def forward(self, x):
-
-        identity = x #save previous state
-
-        x = torch.relu(
-            self.bn1(
+        x = self.pool(
+            torch.relu(
                 self.conv1(x)
             )
         )
 
-        x = self.bn2(
-            self.conv2(x)
+        x = self.pool(
+            torch.relu(
+                self.conv2(x)
+            )
         )
 
-        x += identity #enables residual learning
-        x = torch.relu(x)
-
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
         return x
     
-class MyResNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        self.conv = nn.Conv2d(
-            1, 
-            16, 
-            kernel_size=3,
-            padding=1
-        )
-
-        self.block1 = ResidualBlock(16)
-        self.block2 = ResidualBlock(16)
-
-        self.pool = nn.AdaptiveAvgPool2d(1)
-
-        self.fc = nn.Linear(
-            16,
-            10
-        )
-
-    def forward(self, x):
-        x = torch.relu(
-            self.conv(x)
-        )
-        
-        x = self.block1(x)
-        x = self.block2(x)
-
-        x = self.pool(x)
-
-        x = x.view(x.size(0), -1) #flattened to be compatible with fc layers 
-        x = self.fc(x)
-
-        return x
-
     def fit(self, num_batch, dataloader):
         losses = []
         correct = 0
@@ -170,17 +142,32 @@ test_dataloader = DataLoader(
     shuffle=True
 )
 
-
-model = MyResNet()
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+model = MyCNN()
+device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
 opt = optim.Adam(
     model.parameters(),
-    lr=1e-3
+    lr=1e-2
 )
 loss_fn = nn.CrossEntropyLoss()
 num_batch = 64
+
+#load previous model parameters
+if os.path.exists("checkpoint.pth"):
+    checkpoint = torch.load("checkpoint.pth")
+
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
+    opt.load_state_dict(
+        checkpoint["optimizer_state_dict"]
+    )
+else:
+    print("No checkpoint found. Starting from scratch.")
+
+#0 - train
+#1 - test
 switch = 0
 
 print(next(model.parameters()).device)
@@ -192,3 +179,9 @@ for epoch in range(5):
     else:
         loss, acc = model.evaluate(num_batch, test_dataloader)
     print(f"Loss: {loss}, Acc: {acc}")
+
+#save model parameters
+torch.save({
+    "model_state_dict": model.state_dict(),
+    "optimizer_state_dict": opt.state_dict()
+}, "checkpoint.pth")

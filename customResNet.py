@@ -8,54 +8,99 @@ from torchvision import datasets, transforms
 from torchvision.datasets import CIFAR10, MNIST
 from sklearn.model_selection import train_test_split
 
+class ResidualBlock(nn.Module):
 
-#going to be trianed on CIFAR10 - (3 x 32 x 32)
-class MyCNN(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(
-            in_channels=1,
-            out_channels=16,
-            kernel_size=3,
-            padding=1
-        )
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=stride)
+        self.bn1 = nn.BatchNorm2d(out_channels)
 
-        self.pool = nn.MaxPool2d(2)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, stride=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
 
-        self.conv2 = nn.Conv2d(
-            16,
-            32,
-            3,
-            padding=1
-        )
-
-        
-        self.fc = nn.Sequential(
-            nn.Linear(1568, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 10)
-        )
+        self.downsample = None
+        #if shpaes dont match, transform identity
+        if stride !=1 or in_channels != out_channels:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.BatchNorm2d(out_channels)
+            )
 
     def forward(self, x):
-        x = self.pool(
-            torch.relu(
+
+        identity = x #save previous state
+
+        x = torch.relu(
+            self.bn1(
                 self.conv1(x)
             )
         )
 
-        x = self.pool(
-            torch.relu(
-                self.conv2(x)
-            )
+        x = self.bn2(
+            self.conv2(x)
         )
 
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        #make identity match x
+        if self.downsample is not None:
+            identity = self.downsample(identity)
+
+        x += identity #enables residual learning
+        x = torch.relu(x)
+
         return x
     
+class MyResNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 64, kernel_size=3, padding=1)
+
+        self.layer1 = nn.Sequential(
+            ResidualBlock(64, 64, stride=2),
+            ResidualBlock(64, 64)
+        )
+
+    
+
+        self.layer2 = nn.Sequential(
+            ResidualBlock(64, 128, stride=2),
+            ResidualBlock(128, 128)
+        )
+
+        
+
+        self.layer3 = nn.Sequential(
+            ResidualBlock(128, 256, stride=2),
+            ResidualBlock(256, 256)
+        )
+
+        self.layer4 = nn.Sequential(
+            ResidualBlock(256, 512, stride=2),
+            ResidualBlock(512, 512)
+        )
+
+        self.pool = nn.AdaptiveAvgPool2d(1)
+
+        self.fc = nn.Linear(512, 10)
+
+    def forward(self, x):
+        x = torch.relu(
+            self.conv(x)
+        )
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+
+        x = self.pool(x)
+
+        x = x.view(x.size(0), -1) #flattened to be compatible with fc layers 
+        x = self.fc(x)
+
+        return x
+
     def fit(self, num_batch, dataloader):
         losses = []
         correct = 0
@@ -142,46 +187,26 @@ test_dataloader = DataLoader(
     shuffle=True
 )
 
-model = MyCNN()
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+
+model = MyResNet()
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
 opt = optim.Adam(
     model.parameters(),
-    lr=1e-2
+    lr=1e-3
 )
 loss_fn = nn.CrossEntropyLoss()
 num_batch = 64
-
-#load previous model parameters
-if os.path.exists("checkpoint.pth"):
-    checkpoint = torch.load("checkpoint.pth")
-
-    model.load_state_dict(
-        checkpoint["model_state_dict"]
-    )
-    opt.load_state_dict(
-        checkpoint["optimizer_state_dict"]
-    )
-else:
-    print("No checkpoint found. Starting from scratch.")
-
-#0 - train
-#1 - test
-switch = 1
+switch = 0
 
 print(next(model.parameters()).device)
-for epoch in range(30):
+for epoch in range(5):
     print(f"Round{epoch+1}")
     
     if switch == 0:
         loss, acc = model.fit(num_batch, dataloader)
+        
     else:
         loss, acc = model.evaluate(num_batch, test_dataloader)
     print(f"Loss: {loss}, Acc: {acc}")
-
-#save model parameters
-torch.save({
-    "model_state_dict": model.state_dict(),
-    "optimizer_state_dict": opt.state_dict()
-}, "checkpoint.pth")
