@@ -9,7 +9,6 @@ from torchvision.datasets import CIFAR10, MNIST
 from sklearn.model_selection import train_test_split
 
 
-#going to be trianed on CIFAR10 - (3 x 32 x 32)
 class MyCNN(nn.Module):
     def __init__(self):
         super().__init__()
