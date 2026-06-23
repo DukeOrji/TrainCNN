@@ -1,4 +1,4 @@
 data/
 venv/
-checkpoint.pth/
 __pycache__/
+checkpoint.pth
