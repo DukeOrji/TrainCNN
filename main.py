@@ -6,11 +6,11 @@ from ds import load_cifar, load_mnist
 from train import fit, evaluate, model
 
 test_dataloader, dataloader = load_cifar()
-num_batch = 64
+num_batch = 3
 switch = 0
 
 print(next(model.parameters()).device)
-for epoch in range(5):
+for epoch in range(3):
     print(f"Round{epoch+1}")
     
     if switch == 0:

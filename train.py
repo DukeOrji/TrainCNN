@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from customResNet import MyResNet
+from customShuffleNet import ShuffleNet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model = MyResNet()
+model = ShuffleNet()
 model = model.to(device)
 loss_fn = nn.CrossEntropyLoss()
 opt = optim.Adam(model.parameters(), lr=1e-3)
